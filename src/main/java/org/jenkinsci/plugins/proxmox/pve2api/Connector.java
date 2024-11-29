@@ -1,32 +1,25 @@
 package org.jenkinsci.plugins.proxmox.pve2api;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
-import java.util.logging.Logger;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.security.auth.login.LoginException;
-import java.net.URI;
-import java.net.URISyntaxException;
 
-import kong.unirest.Unirest;
-import kong.unirest.UnirestInstance;
+import hudson.util.Secret;
 import kong.unirest.HttpRequest;
 import kong.unirest.HttpResponse;
 import kong.unirest.JsonNode;
-import kong.unirest.json.JSONObject;
+import kong.unirest.Unirest;
+import kong.unirest.UnirestInstance;
 import kong.unirest.json.JSONArray;
-
-import hudson.util.Secret;
+import kong.unirest.json.JSONException;
+import kong.unirest.json.JSONObject;
 
 public class Connector {
 
@@ -132,29 +125,74 @@ public class Connector {
     }
     
     public JSONObject getQemuMachineStatus(String node, Integer vmid) throws LoginException {
-      JsonNode response = getJSONResource("nodes/" + node + "/qemu/" + vmid + "/status/current");
-      return response.getObject().getJSONObject("data");
+        JsonNode response = getJSONResource("nodes/" + node + "/qemu/" + vmid + "/status/current");
+        return response.getObject().getJSONObject("data");
     }
     
     public Boolean isQemuMachineRunning(String node, Integer vmid) throws LoginException {
-      JSONObject QemuMachineStatus = null;
-      Boolean isRunning = true;
-      QemuMachineStatus = getQemuMachineStatus(node, vmid);
-      isRunning = (QemuMachineStatus.getString("status").equals("running"));
-      return isRunning;
-  }
+        return isQemuMachineRunning(getQemuMachineStatus(node, vmid));
+    }
 
-    public JSONObject waitForTaskToFinish(String node, String taskId) throws LoginException, InterruptedException {
-        JSONObject lastTaskStatus = null;
-        Boolean isRunning = true;
-        while (isRunning) {
-            lastTaskStatus = getTaskStatus(node, taskId);
-            isRunning = (lastTaskStatus.getString("status").equals("running"));
-            if (isRunning) {
-                Thread.sleep(WAIT_TIME_MS);
+    private Boolean isQemuMachineRunning(JSONObject status) {
+        return status.getString("status").equals("running");
+    }
+
+    public TaskExitStatus waitForTaskToFinish(String node, String taskId) throws LoginException, InterruptedException {
+        while (true) {
+            TaskExitStatus taskExitStatus = getTaskExitStatus(node, taskId);
+
+            if (taskExitStatus != null) {
+                return taskExitStatus;
             }
+
+            Thread.sleep(WAIT_TIME_MS);
         }
-        return lastTaskStatus;
+    }
+
+    private TaskExitStatus getTaskExitStatus(String node, String taskId) throws LoginException {
+        try {
+            JSONObject taskStatus = getTaskStatus(node, taskId);
+            LOGGER.info("Task status: " + taskStatus);
+
+            if (isTaskFinished(taskStatus)) {
+                return new TaskExitStatus(taskStatus.getString("exitstatus"));
+            }
+
+            return null;
+        } catch (JSONException je) {
+            return null;
+        }
+    }
+
+    private boolean isTaskFinished(JSONObject taskStatus) throws JSONException {
+        return taskStatus.getString("status").equals("stopped");
+    }
+
+    public void waitForQemuRunningState(String node, Integer vmid) 
+            throws LoginException, InterruptedException, QemuErrorException {
+        while (true) {
+            QemuMachineRunState runState = getQemuMachineRunState(node, vmid);
+
+            if (runState != null && runState.isRunning()) {
+                return;
+            }
+
+            if (runState != null && runState.isError()) {
+                throw new QemuErrorException(runState.getStateString());
+            }
+
+            Thread.sleep(WAIT_TIME_MS);
+        }
+    }
+
+    public QemuMachineRunState getQemuMachineRunState(String node, Integer vmid) throws LoginException {
+        try {
+            JSONObject qemuMachineStatus = getQemuMachineStatus(node, vmid);
+
+            return new QemuMachineRunState(qemuMachineStatus.getString("qmpstatus"));
+        } catch (JSONException je) {
+            return null;
+        }
     }
 
     public HashMap<String, Integer> getQemuMachines(String node) throws LoginException {

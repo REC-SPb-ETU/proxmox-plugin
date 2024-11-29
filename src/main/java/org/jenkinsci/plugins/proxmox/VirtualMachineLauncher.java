@@ -8,6 +8,8 @@ import java.util.logging.Logger;
 import javax.security.auth.login.LoginException;
 
 import org.jenkinsci.plugins.proxmox.pve2api.Connector;
+import org.jenkinsci.plugins.proxmox.pve2api.QemuErrorException;
+import org.jenkinsci.plugins.proxmox.pve2api.TaskExitStatus;
 import org.kohsuke.stapler.DataBoundConstructor;
 
 import hudson.model.Descriptor;
@@ -18,7 +20,6 @@ import hudson.slaves.DelegatingComputerLauncher;
 import hudson.slaves.JNLPLauncher;
 import hudson.slaves.SlaveComputer;
 import jenkins.model.Jenkins;
-import kong.unirest.json.JSONObject;
 
 /**
  * Controls launching of Proxmox virtual machines.
@@ -119,7 +120,6 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
     public void startSlaveIfNeeded(TaskListener taskListener) throws InterruptedException {
         String taskId = null;
-        JSONObject taskStatus = null;
         try {
             Datacenter datacenter = findDatacenterInstance();
             Connector pve = datacenter.proxmoxInstance();
@@ -127,17 +127,19 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
             if (!isvmIdRunning) {
                 taskListener.getLogger().println("Starting virtual machine...");
                 taskId = pve.startQemuMachine(datacenterNode, virtualMachineId);
-                taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
-                taskListener.getLogger().println("Task finished! Status object: " + taskStatus.toString());
+                pve.waitForTaskToFinish(datacenterNode, taskId);
+                pve.waitForQemuRunningState(taskId, virtualMachineId);
             }
         } catch (LoginException e) {
             taskListener.getLogger().println("ERROR: Login failed: " + e.getMessage());
+        } catch (QemuErrorException e) {
+            taskListener.getLogger().println("ERROR: Qemu error state: " + e.getMessage());
         }
     }
 
     public void revertSnapshot(SlaveComputer slaveComputer, TaskListener taskListener) throws InterruptedException {
         String taskId = null;
-        JSONObject taskStatus = null;
+        TaskExitStatus taskStatus = null;
 
         try {
             Datacenter datacenter = findDatacenterInstance();
@@ -152,7 +154,7 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
               //Wait for the task to finish
               taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
-              taskListener.getLogger().println("Task finished! Status object: " + taskStatus.toString());
+              pve.waitForQemuRunningState(taskId, virtualMachineId);
             }
 
             if (startVM) {
@@ -161,6 +163,8 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
         } catch (LoginException e) {
             taskListener.getLogger().println("ERROR: Login failed: " + e.getMessage());
+        } catch (QemuErrorException e) {
+            taskListener.getLogger().println("ERROR: Qemu error state: " + e.getMessage());
         }
 
         //Ignore the wait period for a JNLP agent as it connects back to the Jenkins instance.
@@ -184,7 +188,7 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
     public void shutdown(SlaveComputer slaveComputer, TaskListener taskListener) {
         String taskId = null;
-        JSONObject taskStatus = null;
+        TaskExitStatus taskStatus = null;
 
         //try to gracefully shutdown the virtual machine
         try {
@@ -194,14 +198,13 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
             Connector pve = datacenter.proxmoxInstance();
             taskId = pve.shutdownQemuMachine(datacenterNode, virtualMachineId);
             taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
-            if (!taskStatus.getString("exitstatus").equals("OK")) {
+            if (!taskStatus.isOk()) {
               //Graceful shutdown failed, so doing a stop.
               taskListener.getLogger().println("Virtual machine \"" + virtualMachineId
                   + "\" (slave \"" + slaveComputer.getDisplayName() + "\") was not able to shutdown, doing a stop instead");
               taskId = pve.stopQemuMachine(datacenterNode, virtualMachineId);
               taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
             }
-            taskListener.getLogger().println("Task finished! Status object: " + taskStatus.toString());
         } catch (InterruptedException e) {
             LOGGER.log(Level.SEVERE, "Waiting for task completion failed: " + e.getMessage());
         } catch (LoginException e) {
