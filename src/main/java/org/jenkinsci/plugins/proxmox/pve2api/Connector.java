@@ -11,6 +11,8 @@ import java.util.logging.Logger;
 
 import javax.security.auth.login.LoginException;
 
+import org.jenkinsci.plugins.proxmox.pve2api.exception.QemuErrorException;
+
 import hudson.util.Secret;
 import kong.unirest.HttpRequest;
 import kong.unirest.HttpResponse;
@@ -188,6 +190,8 @@ public class Connector {
     public QemuMachineRunState getQemuMachineRunState(String node, Integer vmid) throws LoginException {
         try {
             JSONObject qemuMachineStatus = getQemuMachineStatus(node, vmid);
+
+            LOGGER.info("Qemu machine status:" + qemuMachineStatus);
 
             return new QemuMachineRunState(qemuMachineStatus.getString("qmpstatus"));
         } catch (JSONException je) {

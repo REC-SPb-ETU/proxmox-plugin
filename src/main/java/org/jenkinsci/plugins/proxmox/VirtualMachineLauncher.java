@@ -8,8 +8,9 @@ import java.util.logging.Logger;
 import javax.security.auth.login.LoginException;
 
 import org.jenkinsci.plugins.proxmox.pve2api.Connector;
-import org.jenkinsci.plugins.proxmox.pve2api.QemuErrorException;
 import org.jenkinsci.plugins.proxmox.pve2api.TaskExitStatus;
+import org.jenkinsci.plugins.proxmox.pve2api.exception.QemuErrorException;
+import org.jenkinsci.plugins.proxmox.pve2api.exception.TaskFailedException;
 import org.kohsuke.stapler.DataBoundConstructor;
 
 import hudson.model.Descriptor;
@@ -128,7 +129,7 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
                 taskListener.getLogger().println("Starting virtual machine...");
                 taskId = pve.startQemuMachine(datacenterNode, virtualMachineId);
                 pve.waitForTaskToFinish(datacenterNode, taskId);
-                pve.waitForQemuRunningState(taskId, virtualMachineId);
+                pve.waitForQemuRunningState(datacenterNode, virtualMachineId);
             }
         } catch (LoginException e) {
             taskListener.getLogger().println("ERROR: Login failed: " + e.getMessage());
@@ -137,7 +138,8 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
         }
     }
 
-    public void revertSnapshot(SlaveComputer slaveComputer, TaskListener taskListener) throws InterruptedException {
+    public void revertSnapshot(SlaveComputer slaveComputer, TaskListener taskListener) throws InterruptedException,
+            QemuErrorException, TaskFailedException {
         String taskId = null;
         TaskExitStatus taskStatus = null;
 
@@ -154,7 +156,11 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
               //Wait for the task to finish
               taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
-              pve.waitForQemuRunningState(taskId, virtualMachineId);
+              if (!taskStatus.isOk()) {
+                throw new TaskFailedException(taskStatus.getStatusString());
+              }
+
+              pve.waitForQemuRunningState(datacenterNode, virtualMachineId);
             }
 
             if (startVM) {
@@ -163,8 +169,6 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
         } catch (LoginException e) {
             taskListener.getLogger().println("ERROR: Login failed: " + e.getMessage());
-        } catch (QemuErrorException e) {
-            taskListener.getLogger().println("ERROR: Qemu error state: " + e.getMessage());
         }
 
         //Ignore the wait period for a JNLP agent as it connects back to the Jenkins instance.
