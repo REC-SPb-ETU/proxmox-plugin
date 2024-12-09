@@ -2,21 +2,24 @@ package org.jenkinsci.plugins.proxmox.pve2api;
 
 /**
  * Status with which task has stopped.
- * If need to represent all status appears, may be
- * reworked to enum.
  */
-public class TaskExitStatus {
+public enum TaskExitStatus {
+    // there is no definition in proxmox api doc,
+    // we just know that it may be ok or not
+    OK("ok"),
+    ANOTHER("another");
+
     private final String statusString;
 
-    public TaskExitStatus(String statusString) {
+    private TaskExitStatus(String statusString) {
         this.statusString = statusString;
     }
 
-    public String getStatusString() {
-        return this.statusString;
-    }
+    public static TaskExitStatus fromString(String string) {
+        if (OK.statusString.equalsIgnoreCase(string.trim())) {
+            return OK;
+        }
 
-    public boolean isOk() {
-        return "ok".equalsIgnoreCase(this.statusString);
+        return ANOTHER;
     }
 }

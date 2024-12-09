@@ -1,27 +1,35 @@
 package org.jenkinsci.plugins.proxmox.pve2api;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
-import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.logging.Level;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import javax.security.auth.login.LoginException;
 
 import org.jenkinsci.plugins.proxmox.pve2api.exception.QemuErrorException;
 
-import hudson.util.Secret;
+import java.net.URI;
+import java.net.URISyntaxException;
+
+import kong.unirest.Unirest;
+import kong.unirest.UnirestInstance;
 import kong.unirest.HttpRequest;
 import kong.unirest.HttpResponse;
 import kong.unirest.JsonNode;
-import kong.unirest.Unirest;
-import kong.unirest.UnirestInstance;
+import kong.unirest.json.JSONObject;
 import kong.unirest.json.JSONArray;
 import kong.unirest.json.JSONException;
-import kong.unirest.json.JSONObject;
+import hudson.util.Secret;
 
 public class Connector {
 
@@ -154,10 +162,10 @@ public class Connector {
     private TaskExitStatus getTaskExitStatus(String node, String taskId) throws LoginException {
         try {
             JSONObject taskStatus = getTaskStatus(node, taskId);
-            LOGGER.info("Task status: " + taskStatus);
+            LOGGER.info("Task status: {}" + taskStatus);
 
             if (isTaskFinished(taskStatus)) {
-                return new TaskExitStatus(taskStatus.getString("exitstatus"));
+                return TaskExitStatus.fromString(taskStatus.getString("exitstatus"));
             }
 
             return null;
@@ -175,12 +183,12 @@ public class Connector {
         while (true) {
             QemuMachineRunState runState = getQemuMachineRunState(node, vmid);
 
-            if (runState != null && runState.isRunning()) {
+            if (runState != null && runState == QemuMachineRunState.RUNNING) {
                 return;
             }
 
             if (runState != null && runState.isError()) {
-                throw new QemuErrorException(runState.getStateString());
+                throw new QemuErrorException("Qemu state is error");
             }
 
             Thread.sleep(WAIT_TIME_MS);
@@ -193,7 +201,7 @@ public class Connector {
 
             LOGGER.info("Qemu machine status:" + qemuMachineStatus);
 
-            return new QemuMachineRunState(qemuMachineStatus.getString("qmpstatus"));
+            return QemuMachineRunState.fromString(qemuMachineStatus.getString("qmpstatus"));
         } catch (JSONException je) {
             return null;
         }

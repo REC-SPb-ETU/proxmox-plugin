@@ -21,6 +21,7 @@ import hudson.slaves.DelegatingComputerLauncher;
 import hudson.slaves.JNLPLauncher;
 import hudson.slaves.SlaveComputer;
 import jenkins.model.Jenkins;
+import kong.unirest.json.JSONObject;
 
 /**
  * Controls launching of Proxmox virtual machines.
@@ -156,16 +157,16 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
 
               //Wait for the task to finish
               taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
-              if (!taskStatus.isOk()) {
-                throw new TaskFailedException(taskStatus.getStatusString());
+              if (taskStatus != TaskExitStatus.OK) {
+                throw new TaskFailedException("Task finished with non-ok status");
               }
-
-              pve.waitForQemuRunningState(datacenterNode, virtualMachineId);
             }
 
             if (startVM) {
                 startSlaveIfNeeded(taskListener);
             }
+
+            pve.waitForQemuRunningState(datacenterNode, virtualMachineId);
 
         } catch (LoginException e) {
             taskListener.getLogger().println("ERROR: Login failed: " + e.getMessage());
@@ -202,7 +203,7 @@ public class VirtualMachineLauncher extends DelegatingComputerLauncher {
             Connector pve = datacenter.proxmoxInstance();
             taskId = pve.shutdownQemuMachine(datacenterNode, virtualMachineId);
             taskStatus = pve.waitForTaskToFinish(datacenterNode, taskId);
-            if (!taskStatus.isOk()) {
+            if (taskStatus != TaskExitStatus.OK) {
               //Graceful shutdown failed, so doing a stop.
               taskListener.getLogger().println("Virtual machine \"" + virtualMachineId
                   + "\" (slave \"" + slaveComputer.getDisplayName() + "\") was not able to shutdown, doing a stop instead");

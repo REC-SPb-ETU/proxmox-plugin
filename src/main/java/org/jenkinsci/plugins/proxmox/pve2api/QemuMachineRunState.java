@@ -3,26 +3,41 @@ package org.jenkinsci.plugins.proxmox.pve2api;
 /**
  * State of Qemu machine.
  * (https://www.qemu.org/docs/master/interop/qemu-qmp-ref.html#qapidoc-80)
- * If need to represent all states appears, may be
- * reworked to enum.
  */
-public class QemuMachineRunState {
+public enum QemuMachineRunState {
+    DEBUG("debug"),
+    FINISH_MIGRATE("finish-migrate"),
+    INTERNAL_ERROR("internal-error"),
+    IO_ERROR("io-error"),
+    PAUSED("paused"),
+    POSTMIGRATE("postmigrate"),
+    PRELAUNCH("prelaunch"),
+    RESTORE_VM("restore-vm"),
+    RUNNING("running"),
+    SAVE_VM("save-vm"),
+    SHUTDOWN("shutdown"),
+    SUSPENDED("suspended"),
+    WATCHDOG("watchdog"),
+    GUEST_PANICKED("guest-panicked"),
+    COLO("colo");
+
     private final String stateString;
 
-    public QemuMachineRunState(String stateString) {
+    private QemuMachineRunState(String stateString) {
         this.stateString = stateString;
     }
 
-    public String getStateString() {
-        return this.stateString;
-    }
+    public static QemuMachineRunState fromString(String string) {
+        for (QemuMachineRunState value: QemuMachineRunState.values()) {
+            if (value.stateString.equalsIgnoreCase(string.trim())) {
+                return value;
+            }
+        }
 
-    public boolean isRunning() {
-        return "running".equalsIgnoreCase(stateString);
+        throw new IllegalArgumentException(String.format("No qemu state '%s'", string));
     }
 
     public boolean isError() {
-        return "internal-error".equalsIgnoreCase(stateString)
-            || "io-error".equalsIgnoreCase(stateString);
+        return this == INTERNAL_ERROR || this == IO_ERROR;
     }
 }
